@@ -1,0 +1,90 @@
+{
+  "business_types": {
+    "description": "The data covers a wide range of Vietnamese small businesses: grocery stores, coffee and bubble-tea shops, restaurants, pharmacies, building-material stores, motorbike repair shops, mother-and-baby stores, and more. The private test includes business types that do not appear in the training or public test data.",
+    "per_business": "Each business covers 12–30 months of activity with seasonality (Tết, Mid-Autumn, public holidays, paydays, weekends) and ranges from a few hundred to about 300,000 rows."
+  },
+  "package_structure": {
+    "tree": [
+      "<split>/",
+      "├── data/<business_id>/",
+      "│   ├── *.csv | *.xlsx | *.sqlite        # one or more data files",
+      "│   └── README.md                        # business description and notes",
+      "├── rulebook.md                          # default rules and vocabulary",
+      "├── calendar.csv                         # solar–lunar calendar (Tết)",
+      "├── questions.jsonl                       # one question per line",
+      "└── answers.jsonl                         # training only"
+    ],
+    "questions_jsonl_sample": {
+      "id": "q_01234",
+      "business_id": "biz_017",
+      "question": "thang nay hang nao ban cham nhat, ton nhieu ma ban ko dc",
+      "as_of_date": "2026-08-27"
+    },
+    "answers_jsonl": {
+      "availability": "Training businesses also come with answers.jsonl, which contains the reference answer for every training question, linked by \"id\".",
+      "format": "Each line follows the submission format, plus an \"alias\" field listing other accepted forms of a name answer (alternative spellings found in the data and the item code).",
+      "unanswerable": "Unanswerable questions have \"answer\": null.",
+      "submission_alias": "Submissions do not need to include the \"alias\" field.",
+      "sample": {
+        "id": "q_06de33fa21cc",
+        "type": "string",
+        "answer": "Xi măng Hà Tiên PCB40 bao 50kg",
+        "alias": ["SP0001"]
+      }
+    },
+    "readme_quality": "The quality of README.md varies: some businesses come with a full data dictionary, others with a few informal notes, some with almost nothing."
+  },
+  "splits": {
+    "columns": ["Split", "Businesses", "Questions", "Reference answers"],
+    "rows": [
+      {"Split": "Training", "Businesses": "30", "Questions": "~3,000", "Reference answers": "Yes"},
+      {"Split": "Public test", "Businesses": "10–20", "Questions": "~1,000", "Reference answers": "Hidden; scored on the public leaderboard"},
+      {"Split": "Private test", "Businesses": "10–20", "Questions": "~500", "Reference answers": "Hidden; released at the private test phase; includes new business types"}
+    ]
+  },
+  "business_rules_defaults": {
+    "note": "Each split ships its own rulebook (rulebook.md), which fixes the default meaning of common terms whenever the question does not say otherwise. The rulebook may differ between splits so your agent must read and apply the rulebook of the split it is answering, not a copy of the training rulebook.",
+    "typical_rules": {
+      "revenue": "revenue = sum of line amounts after line-level discounts (order-level vouchers are not deducted), excluding VAT and delivery fees, excluding cancelled orders and orders with any returned item",
+      "ban_chay": "\"bán chạy\" = by quantity",
+      "week": "a week runs Monday–Sunday",
+      "thang_nay": "\"tháng này\" = the month containing the as-of date, up to and including that date",
+      "default_cost": "default cost = weighted-average purchase cost by lot",
+      "tet_window": "the Tết window = 23 tháng Chạp to mùng 10 (lunar calendar)"
+    }
+  },
+  "submission_format": {
+    "file": "In both rounds you upload a submission.jsonl file, one JSON object per line.",
+    "samples": [
+      {"id": "q_01234", "type": "string", "answer": "Sting dâu 330ml"},
+      {"id": "q_01235", "type": "number", "answer": 48250000},
+      {"id": "q_01236", "type": "percent", "answer": -12.45},
+      {"id": "q_01237", "type": "date", "answer": "2026-08-15"},
+      {"id": "q_01238", "type": "boolean", "answer": true},
+      {"id": "q_01239", "type": "list", "answer": ["Cà phê sữa", "Bạc xỉu", "Trà đào"]},
+      {"id": "q_01240", "type": "table", "answer": {"columns": ["khach_hang", "so_tien_no"], "rows": [["Chị Lan", 3200000], ["Anh Tú", 1500000]]}},
+      {"id": "q_01241", "type": "unanswerable", "reason": "Dữ liệu không có giá vốn nên không tính được lợi nhuận"},
+      {"id": "q_01242", "type": "abstain"}
+    ],
+    "rules": [
+      "Questions missing from the file are scored as abstain.",
+      "The reason field is optional.",
+      "The number of submissions per day follows the general regulations."
+    ]
+  },
+  "docker_image": {
+    "must_contain": [
+      "the source code (training and inference)",
+      "the model weights",
+      "a predict.sh that reads the test set from /data and writes /result/submission.jsonl",
+      "a README"
+    ],
+    "per_question_log": {
+      "path": "/result/logs/",
+      "format": "any format",
+      "min_fields": ["the question id", "the final answer", "the elapsed time"],
+      "plus": "anything else that shows how the answer was reached (e.g. generated code, execution output)"
+    },
+    "purpose": "The organizers use these logs to resolve differences between your uploaded result and their re-run (Rule 8)."
+  }
+}

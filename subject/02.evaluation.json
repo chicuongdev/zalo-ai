@@ -1,0 +1,88 @@
+{
+  "per_question_scoring": {
+    "rule": "Each answer is scored correct, wrong or abstain. An answer of type abstain (or a missing answer) is an abstain. Any other answer is correct only if its type equals the reference type and its value matches the reference as follows; otherwise it is wrong. No partial credit.",
+    "answer_types": [
+      {
+        "type": "number",
+        "answer_content": "A numeric value (VND amounts, counts, quantities)",
+        "example": "48250000",
+        "matching_rule": "Exact match. Reference values are integers (VND amounts, counts, quantities) or rounded to 2 decimals."
+      },
+      {
+        "type": "percent",
+        "answer_content": "A percentage value, in percent",
+        "example": "-12.45",
+        "matching_rule": "Exact match after rounding to 2 decimal places; the sign must be correct."
+      },
+      {
+        "type": "string",
+        "answer_content": "A name (product, customer, branch, weekday, …)",
+        "example": "\"Sting dâu 330ml\"",
+        "matching_rule": "Both the answer and each accepted form of the reference are normalized, then compared for exact equality. Normalization: (1) Unicode NFC; (2) lowercase; (3) every character that is not a letter, a digit or whitespace is replaced by a space; (4) leading/trailing whitespace removed and runs of whitespace collapsed to one space. Diacritics are not removed. Each reference lists its accepted forms: every spelling of the name that occurs in that business's data, plus its code — after normalization, e.g. sting dâu 330ml, sp0042."
+      },
+      {
+        "type": "date",
+        "answer_content": "A date in ISO format",
+        "example": "\"2026-08-15\", \"2025-09\"",
+        "matching_rule": "Exact match. yyyy-mm-dd; questions about a month: yyyy-mm (e.g. \"2025-09\")."
+      },
+      {
+        "type": "boolean",
+        "answer_content": "true / false",
+        "example": "true",
+        "matching_rule": "Exact match."
+      },
+      {
+        "type": "list",
+        "answer_content": "An ordered list of names or numbers, in the order the question asks for (or the rulebook default)",
+        "example": "[\"Cà phê sữa\", \"Bạc xỉu\", \"Trà đào\"]",
+        "matching_rule": "Always ordered, and matched position by position. The order is the one the question asks for, or the rulebook default when the question gives none (see Ranking questions below). Elements are matched with the string or number rule."
+      },
+      {
+        "type": "table",
+        "answer_content": "A small table: column names and rows",
+        "example": "{\"columns\": [...], \"rows\": [[...], ...]}",
+        "matching_rule": "Columns are matched by normalized name; if the names do not match, by position. Rows are matched as a set; name cells with the string rule, numeric cells with the number rule."
+      },
+      {
+        "type": "unanswerable",
+        "answer_content": "The data does not contain what is needed to answer",
+        "example": "—",
+        "matching_rule": "Correct if and only if the reference is unanswerable."
+      },
+      {
+        "type": "abstain",
+        "answer_content": "The agent chooses not to answer",
+        "example": "—",
+        "matching_rule": "Scored as abstain regardless of the reference."
+      }
+    ]
+  },
+  "ranking_questions": "Rankings use the criterion stated in the question, or the rulebook default when the question gives none, in descending order of that criterion over valid orders only; elements with equal values are ordered by code, ascending. Questions whose reference ranking has a tie at the k boundary (or at rank 1 for '… nhất' questions) are excluded from the test sets. When fewer than k candidates exist, the reference answer is all of them.",
+ "score": {
+    "metric": "Penalized Accuracy (PA)",
+    "defined_over": "The N questions of a test set",
+    "formula": {
+      "latex": "PA = \\frac{1}{N} \\sum_{i=1}^{N} s_i, \\qquad s_i = \\begin{cases} 1 & \\text{answer } i \\text{ is correct} \\\\ 0 & \\text{answer } i \\text{ is abstain} \\\\ -1 & \\text{answer } i \\text{ is wrong} \\end{cases}",
+      "plain_text": "PA = (1/N) * sum_{i=1..N} s_i",
+      "symbols": {
+        "PA": "Penalized Accuracy",
+        "N": "total number of questions in the test set",
+        "i": "question index, running from 1 to N",
+        "sum (Σ)": "summation over all questions i = 1 to N",
+        "s_i": "per-question score for answer i",
+        "1/N": "normalization factor (average over N questions)"
+      },
+      "s_i_values": {
+        "correct": 1,
+        "abstain": 0,
+        "wrong": -1
+      }
+    },
+    "notes": [
+      "Any answer given to an unanswerable question counts as wrong.",
+      "All questions carry equal weight.",
+      "Ties in the final ranking are broken by total inference time in the organizers' re-run, then by earlier submission."
+    ]
+  }
+}
