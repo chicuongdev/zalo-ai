@@ -1,0 +1,18 @@
+# competition data — must not be distributed
+data/
+*.zip
+!train.zip
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# run outputs
+out/
+work/
+result/
+
+# kaggle bundle (contains gold plans derived from train data)
+dist/

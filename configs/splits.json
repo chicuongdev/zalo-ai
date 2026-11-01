@@ -1,0 +1,8 @@
+{
+  "_note": "Split by business. holdout keeps source kinds unseen in fit (SQLite POS, mixed sources) to mimic new businesses in private test. See plan/eda_findings.md.",
+  "dev": ["biz_101", "biz_105", "biz_116", "biz_119", "biz_128"],
+  "holdout": ["biz_117", "biz_123", "biz_124", "biz_126", "biz_129"],
+  "fit": ["biz_102", "biz_103", "biz_104", "biz_106", "biz_107", "biz_108", "biz_109", "biz_110",
+          "biz_111", "biz_112", "biz_113", "biz_114", "biz_115", "biz_118", "biz_120", "biz_121",
+          "biz_122", "biz_125", "biz_127", "biz_130"]
+}

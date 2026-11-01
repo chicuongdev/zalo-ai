@@ -6,7 +6,18 @@ Rule 6: chỉ dùng **train + dữ liệu tự sinh + dataset/model public**. **
 
 ## 1. Nguồn dữ liệu huấn luyện
 
-### 1.1 Trajectories từ train (rejection sampling)
+### 1.0 Ưu tiên số 1 — Parser: (câu hỏi → plan vàng)
+
+Trong kiến trúc đã chốt, LLM quan trọng nhất ở **parser câu hỏi** ([thiet_ke/04](thiet_ke/04_hieu_cau_hoi.md)). Dữ liệu SFT có sẵn và **đã kiểm chứng**:
+
+- `scripts/label_plans.py` sinh plan vàng cho ~2.900 câu train answerable: plan thực thi ra đúng đáp án ([thiet_ke/09](thiet_ke/09_chien_luoc_kiem_thu.md)). Mẫu SFT = (câu + ngữ cảnh shop → QueryPlan JSON).
+- **Tăng cường paraphrase**: LLM open-source viết lại câu theo kiểu văn nói (bỏ dấu, gõ sai Telex, teencode, đổi thứ tự) → plan giữ nguyên.
+- **Đổi tham số**: thay tháng/mặt hàng/k/ngưỡng → plan đổi tương ứng.
+- **Câu unanswerable có chủ đích**: thuộc tính shop không ghi (giới tính, địa chỉ…) → `unsupported_attribute`.
+
+Đánh giá trên business `dev/holdout` (không đưa vào SFT).
+
+### 1.1 Trajectories từ train (rejection sampling) — cho đường dự phòng
 - Chạy agent (model lớn nhất có thể, nhiều lần sample với temperature > 0) trên business `train-fit`.
 - Giữ các trajectory có đáp án **đúng** theo evaluator → cặp (prompt, plan, code).
 - Với câu unanswerable: giữ trajectory kết luận đúng + lý do.

@@ -1,6 +1,11 @@
 # 04 — Dữ liệu & EDA
 
-Làm ngay khi có dữ liệu train. Kết quả EDA ghi vào `plan/eda_findings.md` (tạo khi làm).
+> **Trạng thái 2026-11-01:** EDA vòng 1 đã xong → [eda_findings.md](eda_findings.md). Phần còn lại sẽ làm bằng script trong G1–G2:
+> - Taxonomy chính xác: chốt bằng plan vàng.
+> - Chia dev/holdout.
+> - Phân tích nguyên nhân của từng câu unanswerable.
+
+Kết quả EDA ghi vào `plan/eda_findings.md`.
 
 ## 1. Lấy dữ liệu
 

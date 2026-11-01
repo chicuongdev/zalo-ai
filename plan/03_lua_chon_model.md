@@ -1,5 +1,38 @@
 # 03 — Lựa chọn model open-source
 
+## Cập nhật 01/11/2026 — ứng viên sau khi khảo sát model mới (tới 09/2026)
+
+| Vai trò | Model | Tham số (HF) | Phát hành / licence | Ghi chú |
+|---|---|---|---|---|
+| **Chính** | **Qwen/Qwen3.5-9B** | ~10B (gồm vision encoder) | 02–03/2026, Apache-2.0 | Bám chỉ dẫn tốt hơn Qwen3-30B (số do Alibaba công bố). Tắt thinking bằng `enable_thinking=False`. Kiến trúc lai Gated DeltaNet, trang model yêu cầu vLLM nightly ⇒ **rủi ro môi trường** |
+| Dự phòng | Qwen/Qwen3-14B (AWQ khi chạy trên Kaggle) | 14.8B | 04/2025, Apache-2.0 | vLLM hỗ trợ ổn định. Gần trần 15B: không còn chỗ cho model phụ |
+| Nhẹ / thử nhanh | Qwen/Qwen3.5-4B, Qwen/Qwen3-8B | ~4–5B / 8.2B | | Dùng để thử pipeline, hoặc nếu bị giới hạn thời gian chạy |
+
+**Bị loại vì vượt 15B tổng** (MoE tính đủ experts): Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma 4 bản 26B MoE và 31B, gpt-oss-20b.
+
+**Vì sao 9B là đủ:** LLM chỉ gắn nhãn câu hỏi thành QueryPlan. Mọi phép tính do thư viện ngữ nghĩa làm, và thư viện tái tạo 3000/3000 đáp án train. Parser luật đã cho PA ≈ 0,98 trên train. LLM cần bổ sung cho các cách hỏi mới ở private.
+
+**Không cần fine-tune mới chạy được:** chạy zero-shot kèm few-shot. Prompt gồm catalog intent, ngữ cảnh shop (manifest, enum, tên thực thể khớp) và 6 plan vàng gần nhất lấy bằng BM25 **từ shop khác**. Fine-tune LoRA (G5) chỉ làm khi số đo dev cho thấy cần.
+
+**Benchmark trên Kaggle** (`notebooks/kaggle_llm_benchmark.ipynb`, `scripts/eval_llm_parser.py`):
+- Môi trường: 2×T4 16GB, không có bf16, nên dùng `dtype=half`. 9B chạy fp16 với tensor-parallel 2; 14B dùng bản AWQ.
+- Đo trên dev (513 câu): tỉ lệ JSON hợp lệ, tỉ lệ intent đúng so với plan vàng, PA của 5 cách kết hợp (`rule`, `llm`, `agree`, `llm_else_rule`, `rule_else_llm`), thời gian/câu.
+- **Luật chốt:** model có PA cao nhất ở cách kết hợp tốt nhất. Thời gian phải ≤ 20 giây/câu trên T4 (5090 nhanh hơn nhiều). Nếu Qwen3.5 không chạy được trên vLLM bản release ổn định thì chọn Qwen3-14B.
+- Kết quả ghi vào `plan/benchmarks.md`.
+- Docker cuối cùng vẫn phải chạy thử trên RTX 5090 thuê (FP8/BF16) trước khi nộp.
+
+## 0. LLM làm gì trong kiến trúc đã chốt ([thiet_ke/](thiet_ke/00_tong_quan.md))
+
+| Vai trò | Tần suất | Yêu cầu chính | Chế độ |
+|---|---|---|---|
+| **Parser câu hỏi** (B2): câu văn nói → QueryPlan JSON | Mỗi câu (quan trọng nhất) | Hiểu tiếng Việt không dấu/teencode, bám schema JSON | Guided JSON, không thinking, có thể fine-tune LoRA |
+| Chọn thực thể khi mơ hồ (B3) | Một phần câu | Nhanh | Guided enum |
+| Ánh xạ cột / giá trị (A4) | Vài lần mỗi shop | Đọc README + header + mẫu | Guided JSON, có thể bật thinking |
+| Đọc rulebook khác train (R) | Một lần mỗi lần chạy | Hiểu luật | Thinking |
+| **Sinh code dự phòng** (B7) | Câu ngoài catalog | Code pandas/DuckDB tốt | Text, có thể thinking |
+
+⇒ Một model đa năng 14B (Qwen3-14B) phủ mọi vai trò. Benchmark ưu tiên **độ chính xác parse trên plan vàng** ([thiet_ke/09](thiet_ke/09_chien_luoc_kiem_thu.md)), sau đó mới tới chất lượng sinh code. Model text-to-SQL chuyên dụng giảm vai trò: chỉ còn là ứng viên cho đường dự phòng.
+
 ## 1. Luật áp dụng (Rule 2)
 
 - Weights **public trước 01/10/2026**, licence cho phép sử dụng (Apache-2.0, MIT, Qwen licence, Gemma terms… — đọc kỹ từng cái).

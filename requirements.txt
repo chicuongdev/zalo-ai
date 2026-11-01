@@ -1,0 +1,23 @@
+# DataMate — thư viện Python
+# Cài: pip install -r requirements.txt
+# Phiên bản đã kiểm tra (2026-11-01, Python 3.11): pandas 2.3.3, duckdb 2.0.0, python-calamine 0.9.0,
+# openpyxl 3.1.5, rapidfuzz 3.14.6, pytest 9.2.0
+
+# --- xử lý dữ liệu (Pha A, thư viện ngữ nghĩa) ---
+pandas>=2.2            # bảng dữ liệu trong bộ nhớ
+duckdb>=1.1            # lưu mô hình dữ liệu chuẩn + truy vấn SQL nhanh
+python-calamine>=0.2   # đọc .xlsx nhanh (nhanh hơn openpyxl nhiều lần với file lớn)
+openpyxl>=3.1          # dự phòng đọc .xlsx khi calamine lỗi
+
+# --- hiểu câu hỏi ---
+rapidfuzz>=3.0         # so khớp mờ tên mặt hàng / khách hàng
+
+# --- kiểm thử ---
+pytest>=8.0
+
+# --- LLM (G3) — chỉ cài trên máy GPU (Kaggle / Docker); để dạng chú thích vì phiên bản phải khớp CUDA/base image ---
+# vllm                 # chạy LLM nhanh, offline (datamate/llm.py). Qwen3.5 cần bản mới (nightly lúc 11/2026)
+# transformers>=4.57   # tokenizer + backend dự phòng khi vLLM không chạy được
+# accelerate           # backend transformers: chia model lên nhiều GPU
+# bitsandbytes         # backend transformers: nạp 4-bit trên GPU nhỏ (T4)
+# huggingface_hub      # tải weights (chỉ lúc build image; lúc chạy thì offline)

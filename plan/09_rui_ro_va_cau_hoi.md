@@ -19,11 +19,15 @@
 
 ## 2. Câu hỏi mở
 
+Đã có câu trả lời:
+- Deadline: solution 16/11/2026 23:59, private 20/11 09:00 → 23/11 23:59 (xem README).
+
+⚠️ **Rủi ro tuân thủ dữ liệu:** một repo của đội khác trích thể lệ "cấm phát tán bộ dữ liệu". Repo `github.com/chicuongdev/zalo-ai` đang **công khai** và chứa `train.zip` (Git LFS) → cần chuyển repo sang private, hoặc gỡ `train.zip` khỏi lịch sử, và đối chiếu thể lệ chính thức.
+
 Cần user trả lời:
-1. **Deadline** các vòng (nộp solution, private test) — để chốt timeline cụ thể.
-2. **Tài nguyên GPU** dùng để phát triển/fine-tune (loại GPU, số lượng, VRAM, thời gian sử dụng).
-3. Số thành viên trong đội & phân công (ví dụ: 1 người data/helper, 1 người LLM/prompt, 1 người fine-tune/Docker).
-4. Đã có / khi nào có dữ liệu train & public test?
+1. **Tài nguyên GPU** dùng để phát triển/fine-tune (loại GPU, số lượng, VRAM, thời gian sử dụng) — **cần trước 06/11**.
+2. Số thành viên trong đội & phân công (ví dụ: 1 người Pha A, 1 người thư viện ngữ nghĩa, 1 người LLM/Docker).
+3. Public test: một đội khác nhắc tới gói `train+public_test.zip` → nhiều khả năng đã phát hành; cần tải về từ portal.
 
 Cần hỏi BTC / forum:
 1. **Docker guideline** & base image.
