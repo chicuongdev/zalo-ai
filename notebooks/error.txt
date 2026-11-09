@@ -1,79 +1,18 @@
-python -X utf8 scripts/eval_llm_parser.py --model /tmp/models/qwen3.5-9b --backend vllm --dtype half --tp 2 --text-only --max-model-len 4096 --max-num-seqs 16 --enforce-eager --split dev --shots 6 --limit 50 --cache /kaggle/working/cdm_cache --out /kaggle/working/results/llm_qwen3.5-9b_dev
-50 questions, 5 shops, Phase A 2s, pool 1975 gold plans
-model load 518s, generation 72s (1.44s/question)
-model=/tmp/models/qwen3.5-9b backend=vllm dtype=half quant=None shots=6 split=dev n=50
-valid JSON 100.0%   intent = gold intent 100.0%   generation 1.44s/question
-  rule           PA=1.0000  correct=50 wrong=0 abstain=0
-  llm            PA=1.0000  correct=50 wrong=0 abstain=0
-  agree          PA=1.0000  correct=50 wrong=0 abstain=0
-  llm_else_rule  PA=1.0000  correct=50 wrong=0 abstain=0
-  rule_else_llm  PA=1.0000  correct=50 wrong=0 abstain=0
-model=/tmp/models/qwen3.5-9b backend=vllm dtype=half quant=None shots=6 split=dev n=50
-valid JSON 100.0%   intent = gold intent 100.0%   generation 1.44s/question
-  rule           PA=1.0000  correct=50 wrong=0 abstain=0
-  llm            PA=1.0000  correct=50 wrong=0 abstain=0
-  agree          PA=1.0000  correct=50 wrong=0 abstain=0
-  llm_else_rule  PA=1.0000  correct=50 wrong=0 abstain=0
-  rule_else_llm  PA=1.0000  correct=50 wrong=0 abstain=0
-  by answer type (llm):
-    date             4/4    wrong=0
-    list             2/2    wrong=0
-    number          38/38   wrong=0
-    percent          4/4    wrong=0
-    string           2/2    wrong=0
-(MainProcess pid=1441) INFO 11-01 09:38:12 [utils.py:628] [shutdown] Process manager: send sigterm to process EngineCore
-(EngineCore pid=1490) INFO 11-01 09:38:12 [core.py:1454] [shutdown] EngineCore: trigger received signal=SIGTERM
-(EngineCore pid=1490) INFO 11-01 09:38:12 [core.py:1635] [shutdown] EngineCore: start mode=abort timeout=0s
-(EngineCore pid=1490) INFO 11-01 09:38:12 [core.py:1666] [shutdown] EngineCore: request processing complete; starting resource teardown
-(EngineCore pid=1490) INFO 11-01 09:38:12 [core.py:1499] [shutdown] EngineCore: exiting busy loop
-(EngineCore pid=1490) INFO 11-01 09:38:12 [multiproc_executor.py:479] [shutdown] Executor: waiting for worker exit count=2
-(Worker_TP0 pid=1518) INFO 11-01 09:38:12 [multiproc_executor.py:843] Parent process exited, terminating worker queues
-(MainProcess pid=1441) WARNING 11-01 09:38:17 [utils.py:648] [shutdown] Process manager: force killing remaining processes count=1
-31:(Worker_TP1 pid=1519) ERROR 11-01 09:29:28 [fa_utils.py:212] Cannot use FA version 2 is not supported due to FA2 is only supported on devices with compute capability >= 8
-32:(Worker_TP0 pid=1518) ERROR 11-01 09:29:28 [fa_utils.py:212] Cannot use FA version 2 is not supported due to FA2 is only supported on devices with compute capability >= 8
-full log: /kaggle/working/results/qwen3.5-9b_vllm.log (tải ở panel Output nếu cần)
+python -X utf8 scripts/predict.py --data /kaggle/input/datasets/chicuong1503/datamate-public/public_test --out /kaggle/working/results/public_qwen3.5-9b/submission.jsonl --logs /kaggle/working/results/public_qwen3.5-9b/logs --model /tmp/models/qwen3.5-9b --backend vllm --dtype half --tp 2 --text-only --max-model-len 4096 --max-num-seqs 16 --enforce-eager --cache /kaggle/working/cdm_cache --policy safe
+model loaded in 555s
+{"questions": 1000, "answered": 501, "unanswerable": 30, "abstain": 469, "by_source": {"agree": 481, "none": 469, "rule": 21, "llm": 29}, "seconds": 1163.1}
+1000 dòng; [('abstain', 469), ('number', 344), ('percent', 65), ('list', 37), ('unanswerable', 30), ('date', 27), ('string', 20), ('boolean', 6), ('table', 2)]
+nguồn đáp án: [('agree', 481), ('none', 469), ('llm', 29), ('rule', 21)]
+lý do bỏ trống: [('rule parser and LLM disagree', 184), ('no executable plan', 181), ('new rulebook concept', 51), ("LLM only with unexplained words ['dh']", 18), ('LLM says the question is outside the catalog', 12), ("LLM only with unexplained words ['sanh']", 1), ("rule only with unexplained words ['lac']", 1), ("LLM only with unexplained words ['xuong']", 1)]
 
 
+---------------------------------------------------------------------------
+NameError                                 Traceback (most recent call last)
+/tmp/ipykernel_50/253477416.py in <cell line: 0>()
+      1 # ==== phân tích lỗi: câu LLM không trả lời đúng ====
+      2 import json, collections
+----> 3 rows = [json.loads(l) for l in open(f'{OUT}/rows.jsonl', encoding='utf-8')]
+      4 for split in dict.fromkeys(r['split'] for r in rows):
+      5     part = [r for r in rows if r['split'] == split]
 
-
-
-
-
-python -X utf8 scripts/eval_llm_parser.py --model /tmp/models/qwen3.5-9b --backend hf --dtype half --quant 4bit --batch-size 8 --split dev --shots 6 --limit 50 --cache /kaggle/working/cdm_cache --out /kaggle/working/results/llm_qwen3.5-9b_dev_hf
-50 questions, 5 shops, Phase A 2s, pool 1975 gold plans
-Loading weights: 100%|██████████| 427/427 [00:42<00:00,  9.97it/s]
-[transformers] `causal_conv1d_fn` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
-[transformers] `chunk_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
-[transformers] `causal_conv1d_update` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
-[transformers] `fused_recurrent_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
-model load 60s, generation 272s (5.44s/question)
-model=/tmp/models/qwen3.5-9b backend=hf dtype=half quant=4bit shots=6 split=dev n=50
-valid JSON 100.0%   intent = gold intent 100.0%   generation 5.44s/question
-  rule           PA=1.0000  correct=50 wrong=0 abstain=0
-  llm            PA=1.0000  correct=50 wrong=0 abstain=0
-  agree          PA=1.0000  correct=50 wrong=0 abstain=0
-  llm_else_rule  PA=1.0000  correct=50 wrong=0 abstain=0
-  rule_else_llm  PA=1.0000  correct=50 wrong=0 abstain=0
-  by answer type (llm):
-    date             4/4    wrong=0
-    list             2/2    wrong=0
-    number          38/38   wrong=0
-    percent          4/4    wrong=0
-    string           2/2    wrong=0
-
-
-
-
-
-
-
-0 not correct; Counter()
-by gold intent: []
-
-
-
-
-gold_check	    llm_qwen3.5-9b_dev_hf  qwen3.5-9b_vllm.log
-llm_qwen3.5-9b_dev  qwen3.5-9b_hf.log
-=== {RESULTS}/*/report.txt
-cat: '{RESULTS}/*/report.txt': No such file or directory
+NameError: name 'OUT' is not defined

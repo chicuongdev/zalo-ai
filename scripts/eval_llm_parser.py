@@ -26,6 +26,9 @@ from datamate.calendar import Calendar, find_calendar  # noqa: E402
 from datamate.ingest.cache import load_shop  # noqa: E402
 from datamate.llm import LLM, LLMConfig, extract_json  # noqa: E402
 from datamate.qa.llm_parser import PLAN_SCHEMA, FewShotIndex, build_messages, ground  # noqa: E402
+from datamate.qa import consistency  # noqa: E402
+from datamate.qa.decide import Signals, decide  # noqa: E402
+from datamate.qa.novelty import Novelty, entity_words  # noqa: E402
 from datamate.qa.rule_parser import Lexicon, parse  # noqa: E402
 from datamate.scoring import score_one  # noqa: E402
 from datamate.semantic import NotSupported, ShopStore, Unanswerable, execute  # noqa: E402
@@ -79,8 +82,8 @@ def combine(llm_res, rule_res) -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
-    ap.add_argument("--backend", default="vllm", choices=["vllm", "hf", "gold"],
-                    help="gold = echo the gold plan (pipeline smoke test without GPU)")
+    ap.add_argument("--backend", default="vllm", choices=["vllm", "hf", "gold", "replay"],
+                    help="gold = echo the gold plan; replay = --model is a rows.jsonl of an earlier run")
     ap.add_argument("--dtype", default="auto")
     ap.add_argument("--quant", default=None)
     ap.add_argument("--tp", type=int, default=1)
@@ -152,7 +155,10 @@ def main():
     if a.text_only:
         cfg.extra["limit_mm_per_prompt"] = {"image": 0, "video": 0}
     t0 = time.time()
-    if a.backend == "gold":
+    if a.backend == "replay":   # re-ground/re-score the raw LLM outputs of an earlier run (no GPU)
+        prev = {r["id"]: r["raw"] for r in (json.loads(l) for l in open(a.model, encoding="utf-8"))}
+        texts, load_s = [prev.get(q["id"], "") for q in qs], 0.0
+    elif a.backend == "gold":
         texts, load_s = [json.dumps(gold_by_id[q["id"]]["plan"], ensure_ascii=False) if q["id"] in gold_by_id else ""
                          for q in qs], 0.0
     else:
@@ -167,6 +173,7 @@ def main():
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     rows = []
+    novelty = Novelty()
     for q, text in zip(qs, texts):
         biz, as_of, ref = q["business_id"], q["as_of_date"], refs[q["id"]]
         raw = extract_json(text)
@@ -175,7 +182,14 @@ def main():
         rule_cands = parse(q["question"], as_of, lexes[biz])
         rule_res = run(stores[biz], rule_cands[0], as_of) if rule_cands else {"type": "abstain"}
         g = gold_by_id.get(q["id"])
-        scores = {name: score_one(res, ref) for name, res in combine(llm_res, rule_res).items()}
+        strategies = combine(llm_res, rule_res)
+        # "safe" = the decision policy of scripts/predict.py (agreement + unexplained words + LLM "other")
+        sig = Signals(unknown_words=novelty.unknown_words(q["question"], entity_words(lexes[biz])),
+                      llm_used=a.backend != "none", llm_intent=(plan or {}).get("intent"),
+                      rule_issues=consistency.check(q["question"], rule_cands[0], entity_words=entity_words(lexes[biz]), residual=True, as_of=as_of) if rule_cands else [],
+                      llm_issues=consistency.check(q["question"], plan, as_of=as_of) if plan else [])
+        strategies["safe"] = decide(rule_res if rule_cands else None, llm_res, sig, "safe").result
+        scores = {name: score_one(res, ref) for name, res in strategies.items()}
         rows.append({"id": q["id"], "split": split_of[q["id"]], "business_id": biz, "question": q["question"],
                      "ref": ref, "raw": text, "plan": plan, "gold_plan": g["plan"] if g else None,
                      "json_ok": raw is not None, "intent_ok": bool(g and plan and plan.get("intent") == g["plan"]["intent"]),
@@ -193,7 +207,7 @@ def main():
         out_lines = [f"--- {title}: {n} câu ({len({r['business_id'] for r in part})} shop)",
                      f"  JSON hợp lệ {sum(r['json_ok'] for r in part)}/{n}   "
                      f"intent đúng {sum(r['intent_ok'] for r in part)}/{n}"]
-        for name in ("rule", "llm", "agree", "llm_else_rule", "rule_else_llm"):
+        for name in ("rule", "llm", "agree", "llm_else_rule", "rule_else_llm", "safe"):
             c = collections.Counter(r["scores"][name] for r in part)
             pa = sum(SCORE[k] * v for k, v in c.items()) / n
             out_lines.append(f"  {name:14s} đúng {c['correct']:4d}/{n:<4d} ({c['correct'] / n:6.1%})  "

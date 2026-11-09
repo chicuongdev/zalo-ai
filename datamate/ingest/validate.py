@@ -6,6 +6,8 @@ parser prompt shows `enums` so the LLM knows the shop's real labels.
 """
 from __future__ import annotations
 
+import re
+
 import pandas as pd
 
 from .builder import ShopCDM
@@ -180,7 +182,7 @@ def capabilities(cdm: ShopCDM) -> dict:
     named_customers = _has(cdm, "orders", "customer_name")
     ts = "order_ts" in o and pd.to_datetime(o["order_ts"], errors="coerce").dt.hour.fillna(0).ne(0).any()
     drugs = cdm.tables.get("drugs")
-    group_from_customers = _has(cdm, "customers", "customer_group")
+    group_from_customers = _has(cdm, "customers", "customer_group") or _has(cdm, "orders", "customer_group")
     return {
         "order_ids": has_order_ids(cdm),
         "order_lines": bool(len(ln)) and _has(cdm, "order_lines", "product_id"),
@@ -191,7 +193,7 @@ def capabilities(cdm: ShopCDM) -> dict:
         "customers_table": _has(cdm, "customers"),
         "customer_group": group_from_customers,
         "customer_gender": _has(cdm, "customers", "gender"),
-        "customer_address": _has(cdm, "customers", "address"),
+        "customer_address": _has(cdm, "customers", "address") or _has(cdm, "orders", "customer_address"),
         "customer_birthday": _has(cdm, "customers", "birthday"),
         "payment_method": _has(cdm, "orders", "payment_method") or _has(cdm, "payments", "method"),
         "channel": _has(cdm, "orders", "channel"),
@@ -252,7 +254,7 @@ def build_manifest(cdm: ShopCDM, checks: dict | None = None) -> dict:
             "status_raw": _values(cdm, "orders", "status_raw"),
             "payment_method_raw": _values(cdm, "orders", "payment_method_raw") or _values(cdm, "payments", "method_raw"),
             "channel": _values(cdm, "orders", "channel"),
-            "customer_group": _values(cdm, "customers", "customer_group"),
+            "customer_group": _values(cdm, "customers", "customer_group") or _values(cdm, "orders", "customer_group"),
             "product_group": groups,
             "product_group_keys": sorted({name_key(g) for g in groups}),
             "item_type": _values(cdm, "products", "item_type"),
@@ -264,6 +266,91 @@ def build_manifest(cdm: ShopCDM, checks: dict | None = None) -> dict:
         "validation": checks,
         "notes": list(cdm.notes),
     }
+
+
+# ------------------------------------------------------------------ unread data (plan/11 G1: 3-state manifest)
+
+SALES_KINDS = {"sales_flat", "orders", "order_lines"}
+TRIVIAL = {"stt", "no", "tt", "so dong", "dong", "so thu tu", "#", "id"}
+
+# capability -> (accent-free keywords looked up in unread table/column names, table kinds the column must belong to)
+CAP_HINTS = {
+    "customer_group": (["nhom khach", "loai khach", "hang khach", "hang thanh vien", "phan loai khach"], None),
+    "customer_gender": (["gioi tinh", "gt", "nam nu"], None),
+    "customer_address": (["dia chi", "addr", "address", "khu vuc"], None),
+    "customer_birthday": (["ngay sinh", "sinh nhat", "birthday"], None),
+    "customers": (["khach", "sdt", "so dt", "phone", "dien thoai", "customer"], None),
+    "customer_codes": (["ma khach", "ma kh"], None),
+    "staff": (["nhan vien", "thu ngan", "nguoi ban", "tho", "nv"], None),
+    "channel": (["kenh", "nguon", "channel", "san"], None),
+    "payment_method": (["hinh thuc", "thanh toan", "pttt", "tra bang"], None),
+    "payments": (["no", "tra", "thanh toan", "phieu thu", "gop", "thu tien"], None),
+    "debt": (["no", "con thieu", "chua tra", "gop", "khach tra"], None),
+    "order_status": (["trang thai", "ghi chu", "note", "tinh trang", "huy"], SALES_KINDS),
+    "order_ts": (["gio", "thoi gian", "time"], SALES_KINDS),
+    "product_group": (["nhom", "loai hang", "danh muc", "nganh hang"], None),
+    "shipping_fee": (["ship", "van chuyen", "phi giao"], None),
+    "order_discount": (["giam", "chiet khau", "khuyen mai", "voucher", "km"], None),
+    "line_discount": (["giam", "chiet khau", "ck"], None),
+    "line_cost": (["gia von", "von"], None),
+    "catalog_cost": (["gia von", "gia nhap", "von"], None),
+    "purchases": (["nhap"], None),
+    "purchase_lines": (["nhap"], None),
+    "stock_snapshot": (["ton"], None),
+    "lots": (["lo", "han", "hsd"], None),
+    "expiry": (["han", "hsd", "het han"], None),
+    "expenses": (["chi phi", "chi tieu", "phieu chi"], None),
+    "deliveries": (["giao", "chuyen", "dot"], None),
+    "price_history": (["gia"], None),
+    "returns_table": (["tra hang", "hoan", "doi tra"], None),
+    "prescription": (["ke don", "rx"], None),
+    "active_ingredient": (["hoat chat"], None),
+    "promotions": (["khuyen mai", "km", "voucher"], None),
+    "dining": (["ban", "so khach", "khu vuc"], None),
+}
+
+
+def unread_data(mappings: list) -> dict:
+    """Tables and columns the mapper could not place in the CDM: they may hold information the manifest
+    therefore cannot declare absent."""
+    from .parsers import strip_accents
+    tables, columns = [], []
+    for m in mappings:
+        name = m.table if isinstance(m.table, str) else getattr(m.table, "name", str(m.table))
+        if m.kind == "extra":
+            # unmapped table: every column is unmapped
+            tables.append({"name": name, "header": [str(h) for h in m.unmapped if h]})
+        else:
+            for c in m.unmapped:
+                if " ".join(strip_accents(str(c)).lower().split()).strip(".") not in TRIVIAL:
+                    columns.append({"kind": m.kind, "table": name, "column": str(c)})
+    return {"tables": tables, "columns": columns}
+
+
+def maybe_records(manifest: dict, cap: str) -> list[str]:
+    """Unread tables/columns that might hold `cap` (empty list = the shop really does not record it)."""
+    from .parsers import strip_accents
+    unread = manifest.get("unread") or {}
+    keys, kinds = CAP_HINTS.get(cap, ([], None))
+
+    def hit(text: str) -> bool:
+        t = " " + " ".join(re.sub(r"[^a-z0-9]+", " ", strip_accents(text).lower()).split()) + " "
+        return any(f" {k} " in t for k in keys)
+    out = []
+    for c in unread.get("columns", []):
+        if (kinds is None or c["kind"] in kinds) and hit(c["column"]):
+            out.append(f"{c['table']}.{c['column']}")
+    for tb in unread.get("tables", []):
+        # an unknown table: its name or any header may match; with no hint list every unknown table counts
+        if not keys or hit(tb["name"]) or any(hit(h) for h in tb["header"]):
+            out.append(tb["name"])
+    return out
+
+
+def attach_manifest(cdm: ShopCDM, mappings: list) -> ShopCDM:
+    cdm.manifest = build_manifest(cdm)
+    cdm.manifest["unread"] = unread_data(mappings)
+    return cdm
 
 
 def min_score(checks: dict) -> float:

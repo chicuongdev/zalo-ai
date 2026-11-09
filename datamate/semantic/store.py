@@ -54,7 +54,8 @@ class ShopStore:
         """Order lines joined with the order-level fields used for filtering."""
         ln = self.t["order_lines"]
         cols = [c for c in ("order_id", "order_date", "valid", "status", "ckey", "hour", "payment_method", "channel",
-                            "customer_id", "customer_name", "staff_id", "branch_id") if c in self.orders]
+                            "customer_id", "customer_name", "staff_id", "branch_id", "customer_group", "is_walk_in")
+                if c in self.orders]
         o = self.orders[cols].drop_duplicates("order_id")
         drop = [c for c in cols if c != "order_id" and c in ln]
         df = ln.drop(columns=drop).merge(o, on="order_id", how="left")

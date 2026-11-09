@@ -10,7 +10,7 @@ và PA end-to-end khi ghép với thư viện ngữ nghĩa + parser luật.
 
 **Chuẩn bị (một lần):**
 1. Máy local: `python scripts/make_kaggle_bundle.py` → `dist/datamate_code.zip`.
-2. Kaggle → Datasets → New: tải `dist/datamate_code.zip` tên **datamate-code**, tải `train.zip` tên **datamate-train**.
+2. Kaggle → Datasets → New: `dist/datamate_code.zip` tên **datamate-code**, `train.zip` tên **datamate-train**, `public_test.zip` tên **datamate-public**.
    **Visibility: Private** (dữ liệu cuộc thi không được công khai).
 3. Notebook: *Add Input* hai dataset trên; *Settings* → Accelerator **GPU T4 x2**, **Internet on**.
 4. (Tuỳ) *Add-ons → Secrets*: `HF_TOKEN` nếu repo model cần đăng nhập.
@@ -62,6 +62,17 @@ else:
 (REPO / 'data').mkdir(exist_ok=True)
 if not (REPO / 'data/train').exists():
     os.symlink(train_dir, REPO / 'data/train')
+# public test (dataset "datamate-public", Private): questions.jsonl + rulebook.md + data/<dev_xxx>/
+pq = sorted(glob.glob('/kaggle/input/**/public_test/questions.jsonl', recursive=True))
+if pq:
+    PUBLIC = Path(pq[0]).parent
+else:
+    zp = sorted(glob.glob('/kaggle/input/**/public_test.zip', recursive=True))
+    PUBLIC = None
+    if zp:
+        zipfile.ZipFile(zp[0]).extractall('/kaggle/working/public_data')
+        PUBLIC = Path('/kaggle/working/public_data/public_test')
+print('public test:', PUBLIC)
 os.chdir(REPO)
 print('repo', REPO, '| train', train_dir, '| shops', len(list((REPO / 'data/train/data').iterdir())))
 # so sánh với dòng make_kaggle_bundle.py in ra trên máy local: khác nhau => Kaggle còn dùng bản code cũ
@@ -126,8 +137,25 @@ print(cmd)
 !grep -n -i -E "out of memory|exception|raise |Traceback" {LOG} | head -20
 print('full log:', LOG, '(tải ở panel Output nếu cần)')
 """),
-    ("code", """# ==== phân tích lỗi: câu LLM không trả lời đúng ====
+    ("code", """# ==== dự đoán public test -> submission.jsonl (tải ở panel Output rồi nộp lên trang cuộc thi) ====
+assert PUBLIC is not None, 'chưa gắn dataset public test (datamate-public)'
+SUB = RESULTS / f'public_{RUN}'
+cmd = (f'python -X utf8 scripts/predict.py --data {PUBLIC} --out {SUB}/submission.jsonl --logs {SUB}/logs '
+       f'--model {local} --backend vllm {extra} --cache {CACHE} --policy safe')
+print(cmd)
+!{cmd} 2>&1 | tee {SUB}_predict.log | grep --line-buffered -E "model loaded|questions\\"|Error:"
 import json, collections
+lines = [json.loads(l) for l in open(SUB / 'submission.jsonl', encoding='utf-8')]
+print(len(lines), 'dòng;', collections.Counter(l['type'] for l in lines).most_common())
+dec = [json.loads(l) for l in open(SUB / 'logs/decisions.jsonl', encoding='utf-8') if '"decision"' in l]
+print('nguồn đáp án:', collections.Counter(d['decision'] for d in dec).most_common())
+print('lý do bỏ trống:', collections.Counter(d['reason'].split(':')[0][:45] for d in dec if d['submitted']['type'] == 'abstain').most_common(8))
+"""),
+    ("code", """# ==== phân tích lỗi trên dev/holdout (cần chạy cell benchmark trước; bỏ qua nếu chỉ dự đoán public) ====
+import json, collections
+OUT = globals().get('OUT') or f'{RESULTS}/llm_{RUN}_{SPLIT.replace(",", "+")}'
+if not os.path.exists(f'{OUT}/rows.jsonl'):
+    raise SystemExit('chưa có kết quả benchmark (cell benchmark chưa chạy) — bỏ qua cell này')
 rows = [json.loads(l) for l in open(f'{OUT}/rows.jsonl', encoding='utf-8')]
 for split in dict.fromkeys(r['split'] for r in rows):
     part = [r for r in rows if r['split'] == split]

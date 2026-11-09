@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import re
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Callable
 
@@ -84,10 +85,20 @@ class Ctx:
         return self.plan.get("filters") or {}
 
 
+def absent(store: ShopStore, cap: str, msg: str | None = None):
+    """§7 'shop does not record X' — but only when no unread table/column could hold X (plan/11 G1). Otherwise
+    the data may exist in a layout Phase A did not understand: abstain, never claim unanswerable."""
+    from ..ingest.validate import maybe_records
+    maybe = maybe_records(store.manifest, cap) if store.manifest else []
+    if maybe:
+        raise NotSupported(f"{cap} may be in unread data: {maybe[:3]}")
+    raise Unanswerable(msg or f"shop does not record {cap}")
+
+
 def need(store: ShopStore, *caps: str):
     for c in caps:
         if not store.caps.get(c):
-            raise Unanswerable(f"shop does not record {c}")
+            absent(store, c)
 
 
 # ------------------------------------------------------------------ entity resolution
@@ -106,8 +117,8 @@ def find_product(store: ShopStore, name: str) -> str:
 
 def group_mask(store: ShopStore, df: pd.DataFrame, group: str) -> pd.Series:
     """§3: product group by exact group name (spelling-insensitive), never merging similar names."""
-    if "p_group" not in df:
-        raise Unanswerable("shop has no product groups")
+    if "p_group" not in df or df["p_group"].isna().all():
+        absent(store, "product_group", "shop has no product groups")
     k = name_key(group)
     keys = df["p_group"].map(lambda g: name_key(g) if isinstance(g, str) else None)
     if k not in set(keys.dropna()):
@@ -135,7 +146,8 @@ def order_mask(c: Ctx, o: pd.DataFrame, span: Span, valid_only: bool = True) -> 
         need(c.s, "channel")
         keys = o["channel"].map(lambda v: name_key(v) if isinstance(v, str) else None)
         if name_key(f["channel"]) not in set(keys.dropna()):
-            raise Unanswerable(f"shop has no channel {f['channel']!r}")
+            # the shop records channels but not this one: a misread word is likelier than a real absence
+            raise NotSupported(f"channel {f['channel']!r} not among the shop's channels")
         m &= keys == name_key(f["channel"])
     if f.get("shift"):
         need(c.s, "order_ts")
@@ -143,10 +155,18 @@ def order_mask(c: Ctx, o: pd.DataFrame, span: Span, valid_only: bool = True) -> 
         m &= o["hour"].between(lo, hi)
     if f.get("customer_group"):
         need(c.s, "customer_group")
-        cust = c.s.t["customers"]
-        ids = set(cust.loc[cust["customer_group"].map(lambda v: name_key(v) if isinstance(v, str) else "")
-                           == name_key(f["customer_group"]), "customer_id"])
-        m &= o["customer_id"].isin(ids)
+        want = name_key(f["customer_group"])
+        known = {name_key(v) for v in c.s.manifest.get("enums", {}).get("customer_group", []) if isinstance(v, str)}
+        if known and want not in known:
+            raise NotSupported(f"customer group {f['customer_group']!r} not among the shop's groups")
+        if "customer_group" in o and o["customer_group"].notna().any():
+            # group written on the order; walk-in orders belong to no group (§1), even a group named "lẻ"
+            m &= (o["customer_group"].map(lambda v: name_key(v) if isinstance(v, str) else "") == want) & ~o["is_walk_in"]
+        else:
+            cust = c.s.t["customers"]
+            ids = set(cust.loc[cust["customer_group"].map(lambda v: name_key(v) if isinstance(v, str) else "")
+                               == want, "customer_id"])
+            m &= o["customer_id"].isin(ids)
     if f.get("customer"):
         m &= o["ckey"] == customer_key(c.s, f["customer"])
     if f.get("staff"):
@@ -570,11 +590,42 @@ def i_customer_count(c: Ctx):
 
 # ------------------------------------------------------------------ executor
 
+FILTER_KEYS = {"product", "group", "size", "rx", "ingredient", "payment_method", "channel", "shift", "customer",
+               "customer_group", "staff", "supplier"}
+
+
+def validate_plan(plan: dict) -> None:
+    """Structural checks: a malformed plan must fail loudly, never run with a silently ignored field
+    (e.g. a period written into compare_filters compared a period with itself and answered 0%)."""
+    for key in ("filters", "compare_filters"):
+        f = plan.get(key)
+        if f is None:
+            continue
+        if not isinstance(f, dict):
+            raise NotSupported(f"{key} is not an object")
+        bad = set(f) - FILTER_KEYS
+        if bad:
+            raise NotSupported(f"unknown {key} keys {sorted(bad)}")
+        if f.get("size") is not None and not re.fullmatch(r"(?i)x{0,2}[sml]|xxl", str(f["size"]).strip()):
+            raise NotSupported(f"size {f['size']!r} is not a cup/clothes size")   # "160mm" belongs to the name
+    for f in plan.get("filters_list") or []:
+        if not isinstance(f, dict) or set(f) - FILTER_KEYS:
+            raise NotSupported("malformed filters_list")
+    cf = plan.get("compare_filters")
+    if cf is not None and (not cf or cf == (plan.get("filters") or {})):
+        raise NotSupported("compare_filters empty or identical to filters")
+    for key in ("period", "compare"):
+        p = plan.get(key)
+        if p is not None and not (isinstance(p, dict) and isinstance(p.get("kind"), str)):
+            raise NotSupported(f"{key} is not a period")
+
+
 def execute(store: ShopStore, plan: dict, as_of) -> tuple[str, object]:
     name = plan.get("intent")
     if name not in INTENTS:
         raise NotSupported(f"unknown intent {name!r}")
     typ, fn = INTENTS[name]
+    validate_plan(plan)
     try:
         value = fn(Ctx(store, dict(plan), as_of))
     except Unanswerable:

@@ -72,7 +72,15 @@ INTENT_DOCS = {
     "delivery_trips": "số đợt giao hàng trong kỳ",
     "best_staff": "nhân viên bán giỏi nhất (theo doanh thu)",
     "unanswerable": "câu hỏi về thông tin shop không ghi (giới tính, thái độ, địa chỉ, liều dùng…); needs = capability nếu có",
+    "other": "KHÔNG intent nào ở trên đúng nghĩa câu hỏi (khái niệm khác, cách tính khác, thông tin riêng của ngành). "
+             "Dùng khi không chắc; KHÔNG ép câu hỏi vào intent gần giống",
 }
+
+OTHER_EXAMPLES = """Ví dụ phải trả "other" (đừng chọn intent gần giống):
+- "Khách nào hay quay lại nhất tháng 5?" -> other (đếm số lần quay lại, không phải doanh thu/đơn)
+- "Ca nào trong ngày vắng khách nhất?" -> other (không có intent theo ca vắng nhất)
+- "Món nào thường được gọi kèm với cà phê sữa?" -> other (bán kèm)
+- "Tháng 3 tiệm thay bao nhiêu bộ nhông xích?" -> other nếu không có intent cho việc / dịch vụ đó"""
 
 PERIOD_DOC = """period.kind (LLM chỉ gắn nhãn, không tự tính ngày; ngày viết YYYY-MM-DD):
 today | yesterday | day{date} | this_week | last_week | this_month_to_date | last_month | prev_month_same_days |
@@ -113,8 +121,9 @@ PLAN_SCHEMA = {
 def system_prompt() -> str:
     lines = [f"- {k}: {v}" for k, v in INTENT_DOCS.items()]
     return ("Bạn chuyển câu hỏi tiếng Việt (có thể không dấu, viết tắt, gõ Telex) của chủ cửa hàng thành một "
-            "QueryPlan JSON. Chỉ trả về JSON, không giải thích.\n\nIntent:\n" + "\n".join(lines) +
-            "\n\n" + PERIOD_DOC + "\n\n" + FILTER_DOC)
+            "QueryPlan JSON. Chỉ trả về JSON, không giải thích. Trả lời sai bị trừ điểm, không trả lời thì 0 điểm: "
+            "khi câu hỏi dùng khái niệm không khớp đúng nghĩa intent nào thì chọn intent \"other\".\n\nIntent:\n" +
+            "\n".join(lines) + "\n\n" + OTHER_EXAMPLES + "\n\n" + PERIOD_DOC + "\n\n" + FILTER_DOC)
 
 
 # ------------------------------------------------------------------ few-shot retrieval (BM25, 0 parameters)
@@ -214,6 +223,18 @@ def ground(plan: dict, lex: Lexicon) -> dict:
     execution then fails with NotSupported and the question is abstained, never guessed)."""
     plan = {k: v for k, v in plan.items() if v is not None}
     plan.setdefault("filters", {})
+    # common LLM slip: the compared PERIOD written into compare_filters (a slice filter, e.g. ca chiều vs sáng)
+    cf = plan.get("compare_filters")
+    if isinstance(cf, dict) and "kind" in cf:
+        plan.pop("compare_filters")
+        plan.setdefault("compare", cf)
+    elif isinstance(cf, dict) and isinstance(cf.get("price_event"), dict):   # price event is a plan field
+        plan.setdefault("price_event", cf.pop("price_event"))
+    # an empty compare_filters, or one repeating filters, carries no slice: it means "no slice comparison"
+    if plan.get("compare_filters") in ({}, plan["filters"]):
+        plan.pop("compare_filters")
+    if plan.get("filters_list") == []:
+        plan.pop("filters_list")
 
     def fix(f: dict) -> dict:
         f = {k: v for k, v in (f or {}).items() if v not in (None, "")}

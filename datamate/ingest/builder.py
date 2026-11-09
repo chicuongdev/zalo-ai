@@ -7,6 +7,7 @@ names exactly as written in the data.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
@@ -14,7 +15,7 @@ import pandas as pd
 
 from .detect import LogicalTable, source_year
 from .mapper import DATE_FIELDS, NUMERIC_FIELDS, TableMapping
-from .normalize import is_walk_in, name_key, norm_payment, norm_status, norm_text
+from .normalize import is_walk_in, name_key, norm_payment, norm_status, norm_text, status_from_note
 from .parsers import parse_bool, parse_datetime, parse_money, parse_qty_unit, strip_accents
 from .readme import ReadmeFacts
 from .readers import _blank
@@ -23,7 +24,10 @@ BOOL_FIELDS = {"is_rx"}
 MONEY_INT_FIELDS = {"line_amount", "unit_price", "line_discount", "goods_total", "order_discount", "shipping_fee", "vat", "revenue",
                     "grand_total", "paid", "debt", "list_price", "amount", "total", "new_price", "old_price", "refund",
                     "big_unit_price"}
-ORDER_LEVEL = ["order_date", "order_ts", "status", "customer_name", "customer_id"]
+ORDER_LEVEL = ["order_date", "order_ts", "status", "customer_name", "customer_id",
+               # order-level fields a flat sales book may repeat (or write on the first line only) — rulebook §8
+               "goods_total", "order_discount", "shipping_fee", "grand_total", "paid", "debt", "payment_method",
+               "channel", "staff_id", "customer_group", "customer_phone", "customer_address"]
 SERVICE_FEE_KEYS = {name_key("Phí phục vụ")}
 
 
@@ -167,9 +171,36 @@ def build_conversions(tables: dict[str, list[pd.DataFrame]], readme: ReadmeFacts
 
 # ------------------------------------------------------------------ sales
 
+def _is_group_key(df: pd.DataFrame, col: str) -> bool:
+    """Blank on some rows, and blank exactly where the order-level columns are blank too (continuation rows)."""
+    blank = df[col].isna()
+    others = [c for c in ORDER_LEVEL if c in df and c not in ("order_date", "order_ts") and df[c].notna().any()]
+    if not others or blank.all():
+        return False
+    if blank.any():
+        # written on the first row of each group only: blank exactly where the order-level columns are blank
+        if not 0.05 <= blank.mean() <= 0.9 or blank.iloc[0]:
+            return False
+        return bool(df.loc[blank, others].isna().all(axis=1).mean() >= 0.95)
+    # repeated on every row of the group: consecutive runs of one value, order-level columns constant in a run
+    v = df[col].astype(str)
+    run = (v != v.shift()).cumsum()
+    if run.max() > 0.9 * len(df) or run.max() != v.nunique():
+        return False
+    multi = run.map(run.value_counts()) > 1
+    if not multi.any():
+        return False
+    # names are spelled differently line by line ("A (09..)", "A - 09.."): one constant order-level column is enough
+    const = df[multi].groupby(run[multi])[others].nunique(dropna=True).le(1).mean()
+    return bool(const.max() >= 0.95)
+
+
 def _fill_down_orders(df: pd.DataFrame) -> pd.DataFrame:
     """Rulebook §8: blank cells in the following rows of a group repeat the first row of the group."""
     df = df.copy()
+    if "order_id" not in df and "line_no" in df and _is_group_key(df, "line_no"):
+        # a "STT" column filled only on the first row of each group is the order number, not a line number
+        df = df.rename(columns={"line_no": "order_id"})
     if "order_id" in df and df["order_id"].notna().any():
         df["order_id"] = df["order_id"].ffill()
         cols = [c for c in ORDER_LEVEL if c in df]
@@ -200,6 +231,9 @@ def build_sales(tables: dict[str, list[pd.DataFrame]], products: ProductIndex, c
         grp = flat.groupby("order_id", sort=False)
         agg = {c: "first" for c in ORDER_LEVEL if c in flat}
         derived = grp.agg(agg).reset_index() if agg else pd.DataFrame({"order_id": flat["order_id"].unique()})
+        if has_ids and "note" in flat and flat["note"].notna().any():
+            notes_by = grp["note"].agg(lambda s: " | ".join(str(v) for v in s.dropna().unique()))
+            derived["note"] = derived["order_id"].map(notes_by)
         orders = derived if orders is None else orders
         line_cols = [c for c in flat.columns if c not in ORDER_LEVEL or c == "status"]
         lines = flat[line_cols].rename(columns={"status": "line_status"}) if lines is None else lines
@@ -223,7 +257,15 @@ def build_sales(tables: dict[str, list[pd.DataFrame]], products: ProductIndex, c
     if "order_date" in orders:
         orders["order_date"] = pd.to_datetime(orders["order_date"]).dt.normalize()
     orders["status_raw"] = orders.get("status")
-    orders["status"] = orders["status_raw"].map(norm_status) if "status" in orders else "completed"
+    if "status" in orders:
+        orders["status"] = orders["status_raw"].map(norm_status)
+    elif "note" in orders and orders["note"].notna().any():
+        # rulebook: a book without a status column writes the status in the notes (no mention = completed)
+        orders["status"] = orders["note"].map(status_from_note)
+        orders["status_raw"] = orders["note"].fillna("")          # the shop records statuses (in its notes)
+        notes.append(f"status from notes: {orders['status'].value_counts().to_dict()}")
+    else:
+        orders["status"] = "completed"
     unknown = orders.loc[orders["status"].isna() & orders["status_raw"].notna(), "status_raw"].unique()
     if len(unknown):
         notes.append(f"unknown status values: {list(unknown)[:10]}")
@@ -242,6 +284,7 @@ def build_sales(tables: dict[str, list[pd.DataFrame]], products: ProductIndex, c
     if "_qty_unit" in lines:
         lines["unit"] = lines["unit"].fillna(lines["_qty_unit"])
         lines = lines.drop(columns=["_qty_unit"])
+    lines = _split_combined_cells(lines, products, notes)
     pid = lines["product_id"] if "product_id" in lines else pd.Series([None] * len(lines))
     pname = lines["product_name"] if "product_name" in lines else pd.Series([None] * len(lines))
     lines["product_name_raw"] = pname
@@ -252,7 +295,8 @@ def build_sales(tables: dict[str, list[pd.DataFrame]], products: ProductIndex, c
     lines["qty_base"] = _qty_base(lines, conv, products)
     lines["is_service_fee"] = [name_key(products.display_name(p) or "") in SERVICE_FEE_KEYS for p in lines["product_id"]]
     if "line_amount" not in lines and "unit_price" in lines:
-        lines["line_amount"] = lines["qty"] * lines["unit_price"] - lines.get("line_discount", 0).fillna(0)
+        disc = lines["line_discount"].fillna(0) if "line_discount" in lines else 0
+        lines["line_amount"] = lines["qty"] * lines["unit_price"] - disc
 
     # --- returns: status, negative lines, lot returns, return slips (rulebook §1: any return -> whole order out)
     ret = set(orders.loc[orders["status"] == "returned", "order_id"])
@@ -268,12 +312,115 @@ def build_sales(tables: dict[str, list[pd.DataFrame]], products: ProductIndex, c
     orders["has_return"] = orders["order_id"].isin(ret)
 
     lines = _round_money(lines)
+    orders, lines = _split_adjustment_lines(orders, lines, products, notes)
     # order revenue (rulebook §1): sum of line amounts after line discounts; shops without lines record it on the order
     by_order = lines.groupby("order_id")["line_amount"].sum(min_count=1)
     orders["revenue"] = orders["order_id"].map(by_order)
     if "goods_total" in orders:
         orders["revenue"] = orders["revenue"].fillna(pd.to_numeric(orders["goods_total"], errors="coerce"))
     return _round_money(orders), lines
+
+
+_ADDON = re.compile(r"^(?:(\d+)\s*(?:x\s*)?)?(.+?)\s*\(\s*([\d.,]+\s*(?:đ|d|k|vnd|vnđ)?)\s*\)$", re.I)
+
+
+def _known_names(lines: pd.DataFrame, products: ProductIndex) -> dict[str, str]:
+    """plain name key -> name, for catalog items and items sold on their own line (no lookup side effects)."""
+    out = {}
+    for pid, r in products.by_id.items():
+        if r.get("product_name"):
+            out.setdefault(strip_accents(name_key(r["product_name"])), r["product_name"])
+    for v in lines["product_name"].dropna().unique():
+        if isinstance(v, str) and " + " not in v:
+            out.setdefault(strip_accents(name_key(v)), v)
+    return out
+
+
+def _find_known(known: dict[str, str], name: str) -> str | None:
+    for cand in (name, f"Topping {name}"):
+        hit = known.get(strip_accents(name_key(cand)))
+        if hit:
+            return hit
+    return None
+
+
+def _split_combined_cells(lines: pd.DataFrame, products: ProductIndex, notes: list[str]) -> pd.DataFrame:
+    """Rulebook: an add-on written in the item's cell ("Latte (M) + 2 Trân châu đen (14.000đ)") is a separate
+    item sold: its portions (number before the name, default 1) and its money (in brackets, already inside the
+    line amount) belong to the add-on, not to the item. Split only when the item and every add-on are known
+    items (catalog, or sold on a line of their own) and every add-on has bracketed money, so an item whose own
+    name contains '+' is never cut."""
+    if "product_name" not in lines or "line_amount" not in lines:
+        return lines
+    cand = lines["product_name"].map(lambda v: isinstance(v, str) and " + " in v)
+    if not cand.any():
+        return lines
+    known = _known_names(lines, products)
+    lines = lines.copy()
+    extra, n_split = [], 0
+    for idx, row in lines[cand].iterrows():
+        parts = [p.strip() for p in row["product_name"].split(" + ")]
+        base = _find_known(known, parts[0])
+        addons = []
+        for p in parts[1:]:
+            m = _ADDON.match(p)
+            name = _find_known(known, m.group(2).strip()) if m else None
+            money = parse_money(m.group(3)) if m else None
+            if name is None or money is None:
+                addons = None
+                break
+            addons.append((name, float(m.group(1) or 1), float(money)))
+        if not addons or base is None:
+            continue
+        n_split += 1
+        total = pd.to_numeric(pd.Series([row["line_amount"]]), errors="coerce").iloc[0]
+        lines.at[idx, "product_name"] = base
+        if pd.notna(total):
+            lines.at[idx, "line_amount"] = total - sum(a[2] for a in addons)
+        for name, qty, money in addons:
+            r = row.copy()
+            r["product_name"], r["qty"], r["line_amount"], r["unit"] = name, qty, money, None
+            if "product_id" in r:
+                r["product_id"] = None
+            if "unit_price" in r:
+                r["unit_price"] = money / qty if qty else None
+            for c in ("qty_base", "line_discount"):
+                if c in r:
+                    r[c] = None
+            extra.append(r)
+    if not n_split:
+        return lines
+    notes.append(f"split {n_split} lines with add-ons written in the item cell into {len(extra)} add-on lines")
+    return pd.concat([lines, pd.DataFrame(extra)], ignore_index=True)
+
+
+_ADJ_DISCOUNT = re.compile(r"^(voucher|ma giam gia|giam gia( hoa don| don| ca don)?|chiet khau( hoa don| don)?|"
+                           r"khuyen mai( hoa don)?|dung \d+ diem|tru \d+ diem|doi \d+ diem|tru diem|dung diem)\b")
+_ADJ_SHIP = re.compile(r"^(phi ship|tien ship|phi giao( hang)?|phi van chuyen|ship)\b")
+
+
+def _split_adjustment_lines(orders: pd.DataFrame, lines: pd.DataFrame, products: ProductIndex, notes: list[str]):
+    """Rows of a sales book that are order-level money, not goods ("Voucher", "Dùng 200 điểm", "Phí ship"):
+    rulebook §1 revenue = goods lines only (order discounts not deducted, shipping not included). They have no
+    quantity; their amount moves to the order (order_discount as a positive number, shipping_fee)."""
+    if lines.empty or "product_name" not in lines:
+        return orders, lines
+    key = lines["product_name"].map(lambda v: strip_accents(str(v)).lower().strip() if isinstance(v, str) else "")
+    key = key.str.replace(r"[^a-z0-9 ]+", " ", regex=True).str.split().str.join(" ")
+    no_qty = lines["qty"].isna() | (lines["qty"].fillna(0) == 0)
+    disc = key.str.match(_ADJ_DISCOUNT) & no_qty
+    ship = key.str.match(_ADJ_SHIP) & no_qty
+    if not (disc.any() or ship.any()):
+        return orders, lines
+    amt = pd.to_numeric(lines["line_amount"], errors="coerce").fillna(0)
+    orders = orders.copy()
+    for mask, col, sign in ((disc, "order_discount", -1), (ship, "shipping_fee", 1)):
+        if mask.any():
+            add = (sign * amt[mask]).groupby(lines.loc[mask, "order_id"]).sum()
+            base = pd.to_numeric(orders[col], errors="coerce") if col in orders else pd.Series(0, index=orders.index)
+            orders[col] = base.fillna(0) + orders["order_id"].map(add).fillna(0)
+    notes.append(f"order-level rows moved out of goods lines: {int(disc.sum())} discount, {int(ship.sum())} shipping")
+    return orders, lines[~(disc | ship)].copy()
 
 
 def _qty_base(lines: pd.DataFrame, conv: pd.DataFrame, products: ProductIndex) -> pd.Series:
@@ -354,6 +501,12 @@ def build_shop(business_id: str, mapped: list[tuple[LogicalTable, TableMapping]]
         prod = pd.concat([prod, pd.DataFrame({"product_id": extra})], ignore_index=True)
     prod["name"] = prod["product_id"].map(products.display_name)
     prod["name_variants"] = prod["product_id"].map(lambda p: sorted(products.variants.get(p, {})))
+    if "product_group" in lines and lines["product_group"].notna().any():
+        # group written on the sale lines (no catalog group): most frequent group of each product
+        line_group = (lines.dropna(subset=["product_id", "product_group"]).groupby("product_id")["product_group"]
+                      .agg(lambda s: s.value_counts().index[0]))
+        from_lines = prod["product_id"].map(line_group)
+        prod["group"] = prod["group"].fillna(from_lines) if "group" in prod else from_lines
     t["products"] = _round_money(prod)
 
     if "order_date" in orders and orders["order_date"].notna().any():

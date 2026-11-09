@@ -47,6 +47,26 @@ def norm_status(v) -> str | None:
     return None
 
 
+_NOTE_CANCEL = re.compile(r"\b(huy|cancel(led)?|khong lay|bom hang)\b")
+_NOTE_RETURN = re.compile(r"\b(tra lai|tra hang|hoan hang|hoan tra|doi tra|tra ve|returned?)\b|\bmang\b.{0,15}\btra\b(?! (gop|truoc|no|sau|tien))")
+
+
+def status_from_note(v) -> str:
+    """Rulebook: a book without a status column writes the order status in its notes; a note that does not
+    mention a status means a completed order. Free text, so only explicit cancel / return wording counts
+    ('trả góp', 'trả trước', 'trả nợ' are payments, not returns)."""
+    if v is None or (isinstance(v, float) and v != v) or not str(v).strip():
+        return "completed"
+    k = _key(v)
+    if _NOTE_CANCEL.search(k):
+        return "cancelled"
+    if _NOTE_RETURN.search(k):
+        return "returned"
+    if re.search(r"\b(dang giao|cho giao|dang ship|dang van chuyen|chua giao)\b", k):
+        return "delivering"
+    return "completed"
+
+
 _PAY = {
     "cash": ["Tiền mặt", "cash", "TM"],
     "transfer": ["Chuyển khoản", "transfer", "CK", "bank"],

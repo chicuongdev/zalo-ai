@@ -25,6 +25,10 @@ NUMERIC_FIELDS = {"qty_base", "unit_price", "line_discount", "line_amount", "sal
                   "big_unit_price", "vat_rate"}
 QTY_FIELDS = {"qty"}  # may carry a unit: '2 thùng'
 SAMPLE = 400
+_SUPPLIER = KINDS["purchase_lines"]["fields"]["supplier_name"]
+_CUSTOMER = KINDS["sales_flat"]["fields"]["customer_name"]
+FOREIGN = {"sales_flat": _SUPPLIER, "order_lines": _SUPPLIER, "orders": _SUPPLIER,
+           "purchase_lines": _CUSTOMER, "purchases": _CUSTOMER}
 
 
 @dataclass
@@ -86,6 +90,10 @@ def _match(fld_spec: dict, p: ColumnProfile) -> tuple[float, str] | None:
     h = norm_header(p.name)
     if p.desc and norm_header(p.desc) in fld_spec["d"]:
         return 1.0, "desc"
+    if p.desc:   # README wording varies: a long description starting with a known phrase (>= 3 words)
+        dsc = norm_header(p.desc) + " "
+        if any(len(d.split()) >= 3 and dsc.startswith(d + " ") for d in fld_spec["d"]):
+            return 0.95, "desc"
     if h in fld_spec["h"]:
         return 0.9, "header"
     best = max((fuzz.ratio(h, s) for s in fld_spec["h"]), default=0)
@@ -121,6 +129,11 @@ def score_kind(kind: str, profiles: list[ColumnProfile]):
         score += s
     ok = all(any(f in cols for f in group) for group in spec["need"])
     unmapped = [p.name for p in profiles if p.name not in used_c and not _ignored(p)]
+    # a column that is the counterparty of the OTHER direction (supplier in a sales book, customer in a purchase
+    # book) contradicts the kind: a purchase book read as sales adds purchases to revenue
+    foreign = FOREIGN.get(kind)
+    if foreign and any(_match(foreign, p) and p.name in unmapped for p in profiles):
+        score -= 5.0
     return ok, score - 0.3 * len(unmapped), cols, ev, unmapped
 
 

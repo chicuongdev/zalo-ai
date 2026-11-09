@@ -30,7 +30,8 @@ def F(h=(), d=(), w=1.0):
 
 # ------------------------------------------------------------------ shared field vocab
 ORDER_ID = F(["Mã đơn hàng", "Mã hóa đơn", "Ma don", "Mã GD", "Mã bill", "Mã chứng từ", "Mã giao dịch", "Mã phiếu",
-              "Số phiếu", "Số CT", "Số HĐ", "Order ID", "So hoa don", "MaHoaDon", "Mã đơn", "Mã HĐ"], ["mã đơn"], 3)
+              "Số phiếu", "Số CT", "Số HĐ", "Order ID", "So hoa don", "MaHoaDon", "Mã đơn", "Mã HĐ"],
+             ["mã đơn", "số thứ tự đơn", "số thứ tự hoá đơn", "số hoá đơn", "mã hoá đơn"], 3)
 PRODUCT_ID = F(["Mã hàng", "Mã HH", "Mã SKU", "ID SP", "Mã sp", "ma_sp", "Mã món", "Mã sản phẩm", "MaHangHoa", "Ma hang",
                 "Mã hàng hóa", "Mã mặt hàng", "Mã hàng bán", "Mã sản phẩm bán", "SKU"], ["mã hàng"], 2)
 PRODUCT_NAME = F(["Tên hàng", "Hàng", "Mặt hàng", "Nội dung", "Product", "Sản phẩm", "Ten hang", "Tên SP", "Tên sản phẩm",
@@ -46,7 +47,7 @@ UNIT_PRICE = F(["Đơn giá", "Giá", "Giá bán", "Giá lẻ", "Giá 1 đv", "G
                 "don_gia", "GiaDonVi", "Đơn giá (đ)", "Đơn giá bán", "Giá bán lẻ"], ["đơn giá"], 1)
 LINE_DISCOUNT = F(["Giảm giá", "Khuyến mãi", "Chiết khấu", "ChietKhau"], ["giảm giá"], 0.5)
 LINE_AMOUNT = F(["Thành tiền", "Thanh tien", "T.Tiền", "Amount", "Trị giá", "Tiền bán", "Tiền", "Tổng tiền", "thanh_tien",
-                 "TriGia", "Thành tiền (đ)", "Tổng"], ["thành tiền sau giảm"], 2)
+                 "TriGia", "Thành tiền (đ)", "Tổng"], ["thành tiền sau giảm", "thành tiền của dòng"], 2)
 SALE_COST = F(["Giá vốn", "Giá vốn lúc bán", "GiaVonLucBan"], ["giá vốn"], 1)
 ORDER_DATE = F(["Ngày", "Ngày bán", "Ngày giao dịch", "Ngày lập", "Ngày mua", "Ngày tháng", "Ngày đặt hàng", "NgayBan",
                 "ngay_ban", "Thời gian", "NgayLap"], ["ngày bán"], 2)
@@ -58,7 +59,37 @@ CUSTOMER_NAME = F(["Khách", "Khách hàng", "Tên khách", "Tên khách hàng",
                    "Khách hàng (tên)"], ["tên khách (Khách lẻ nếu không lưu)"], 1)
 CUSTOMER_ID = F(["Mã KH", "Mã khách hàng", "Customer ID", "Mã khách mua", "Số KH", "ma_kh", "Mã KH mua", "MaKhachHang"],
                 ["mã khách (trống nếu khách lẻ)", "mã khách"], 1)
-NOTE = F(["Ghi chú", "Ghi chu", "Diễn giải", "Nội dung", "DienGiai", "Mô tả"], ["ghi chú"], 0.2)
+NOTE = F(["Ghi chú", "Ghi chu", "Diễn giải", "Nội dung", "DienGiai", "Mô tả", "Note"], ["ghi chú"], 0.2)
+
+# order-level fields: in a separate orders table, or repeated on every line of a flat sales book
+GOODS_TOTAL = F(["Tổng tiền hàng", "Tien hang", "Tiền hàng trước giảm", "TongTienHang"],
+                ["tổng tiền hàng của đơn (cộng thành tiền các dòng), trước giảm giá của đơn",
+                 "tiền hàng của đơn: cộng thành tiền các mặt hàng, trước giảm giá của đơn, chưa gồm phí giao"], 2)
+ORDER_DISCOUNT = F(["Giảm giá", "CK", "ChietKhau", "Chiết khấu", "Giảm giá HĐ", "Giảm giá hóa đơn", "Giảm HĐ", "Bớt",
+                    "Giảm giá đơn", "Tiền giảm"], ["giảm giá", "giảm giá của cả đơn"], 0.5)
+SHIPPING_FEE = F(["Phí giao hàng", "PhiVanChuyen", "Phí vận chuyển", "Phí ship", "Ship", "Tiền ship"], ["phí giao hàng"], 0.5)
+GRAND_TOTAL = F(["Tổng sau giảm giá", "Tổng bill", "Tổng đơn", "Phải thu", "TongTien", "Tong tien", "TongThanhToan",
+                 "Tổng thanh toán", "Tổng phiếu", "Khách phải trả", "Cần thu"],
+                ["tổng tiền đơn", "số khách phải trả cho cả đơn (đã tính giảm giá của đơn và phí giao)"], 2)
+PAID = F(["Khách đã trả", "Da tra", "Khách trả", "Thanh toán", "Đã thu", "KhachDaTra", "Đã trả", "Tiền khách trả"],
+         ["đã thanh toán"], 1)
+DEBT = F(["Còn nợ", "Còn lại", "Dư nợ", "Chưa trả", "ConPhaiThu", "Nợ", "Ghi nợ"],
+         ["còn nợ", "số khách còn nợ của đơn (đơn huỷ: 0)"], 1)
+PAYMENT_METHOD = F(["Phương thức thanh toán", "Phương thức TT", "Hình thức thanh toán", "Trả bằng", "PhuongThucTT",
+                    "Thanh toán bằng", "HTTT", "PTTT", "Hình thức TT"],
+                   ["hình thức thanh toán của đơn: cash tiền mặt, transfer chuyển khoản, ewallet ví điện tử, "
+                    "cod giao hàng thu tiền, debt ghi nợ", "hình thức thanh toán"], 1)
+CHANNEL = F(["Kênh bán", "Bán qua", "Loại bán", "Nguồn đơn", "KenhBanHang", "Kênh", "Nguồn", "Kênh bán hàng"], ["kênh bán"], 1)
+STAFF = F(["Người bán", "Mã NV bán", "MaNhanVien", "Nhân viên bán", "Nhân viên", "NV bán", "Thu ngân", "NV", "Tên NV"],
+          ["mã nhân viên bán", "nhân viên bán"], 1)
+CUSTOMER_GROUP = F(["Nhóm khách hàng", "Nhóm khách", "Hạng", "LoaiKhachHang", "Loại khách", "Hạng thành viên"], ["nhóm khách"], 1)
+PRODUCT_GROUP = F(["Nhóm hàng", "Nhóm", "Loại hàng", "Danh mục", "NhomHang", "Ngành hàng"], ["nhóm hàng"], 0.5)
+PHONE = F(["Điện thoại", "SĐT", "Số ĐT", "Phone", "SDT", "Số điện thoại"], ["số điện thoại"], 0.3)
+ADDRESS = F(["Địa chỉ", "Addr", "Address", "DiaChi"], ["địa chỉ"], 0.3)
+ORDER_FIELDS = {"goods_total": GOODS_TOTAL, "order_discount": ORDER_DISCOUNT, "shipping_fee": SHIPPING_FEE,
+                "grand_total": GRAND_TOTAL, "paid": PAID, "debt": DEBT, "payment_method": PAYMENT_METHOD,
+                "channel": CHANNEL, "staff_id": STAFF, "customer_group": CUSTOMER_GROUP,
+                "customer_phone": PHONE, "customer_address": ADDRESS}
 
 KINDS: dict[str, dict] = {
     # one row per sale line, order-level fields repeated (or filled down) on every line
@@ -68,7 +99,11 @@ KINDS: dict[str, dict] = {
             "customer_name": CUSTOMER_NAME, "customer_id": CUSTOMER_ID,
             "product_id": PRODUCT_ID, "product_name": PRODUCT_NAME, "unit": UNIT, "qty": QTY, "qty_base": QTY_BASE,
             "unit_price": UNIT_PRICE, "line_discount": LINE_DISCOUNT, "line_amount": LINE_AMOUNT, "sale_cost": SALE_COST,
-            "note": NOTE,
+            "note": NOTE, "product_group": PRODUCT_GROUP,
+            # "STT": a row number, or the order number written on the first line of each order only (builder decides)
+            "line_no": F(["STT", "Thứ tự", "SoThuTu"], [], 0.1),
+            # order-level fields repeated on the lines (low weight: optional evidence, never decisive for the kind)
+            **{k: {**v, "w": min(v["w"], 0.5)} for k, v in ORDER_FIELDS.items()},
         },
         "need": [["order_date"], ["product_id", "product_name"], ["qty", "qty_base"], ["line_amount", "unit_price"]],
     },
@@ -84,24 +119,8 @@ KINDS: dict[str, dict] = {
         "fields": {
             "order_id": ORDER_ID, "order_date": ORDER_DATE, "order_ts": ORDER_TS, "status": STATUS,
             "customer_name": CUSTOMER_NAME, "customer_id": CUSTOMER_ID,
-            "goods_total": F(["Tổng tiền hàng", "Tien hang", "Tiền hàng trước giảm", "TongTienHang"],
-                             ["tổng tiền hàng của đơn (cộng thành tiền các dòng), trước giảm giá của đơn",
-                              "tiền hàng của đơn: cộng thành tiền các mặt hàng, trước giảm giá của đơn, chưa gồm phí giao"], 2),
-            "order_discount": F(["Giảm giá", "CK", "ChietKhau", "Chiết khấu"], ["giảm giá"], 0.5),
-            "shipping_fee": F(["Phí giao hàng", "PhiVanChuyen", "Phí vận chuyển", "Phí ship"], [], 0.5),
+            **ORDER_FIELDS,
             "vat": F(["Thuế GTGT", "ThueGTGT", "VAT", "Thuế"], [], 0.5),
-            "grand_total": F(["Tổng sau giảm giá", "Tổng bill", "Tổng đơn", "Phải thu", "TongTien", "Tong tien",
-                              "TongThanhToan", "Tổng thanh toán"],
-                             ["tổng tiền đơn", "số khách phải trả cho cả đơn (đã tính giảm giá của đơn và phí giao)"], 2),
-            "paid": F(["Khách đã trả", "Da tra", "Khách trả", "Thanh toán", "Đã thu", "KhachDaTra"], ["đã thanh toán"], 1),
-            "debt": F(["Còn nợ", "Còn lại", "Dư nợ", "Chưa trả", "ConPhaiThu"],
-                      ["còn nợ", "số khách còn nợ của đơn (đơn huỷ: 0)"], 1),
-            "payment_method": F(["Phương thức thanh toán", "Phương thức TT", "Hình thức thanh toán", "Trả bằng",
-                                 "PhuongThucTT"],
-                                ["hình thức thanh toán của đơn: cash tiền mặt, transfer chuyển khoản, ewallet ví điện tử, "
-                                 "cod giao hàng thu tiền, debt ghi nợ", "hình thức thanh toán"], 1),
-            "channel": F(["Kênh bán", "Bán qua", "Loại bán", "Nguồn đơn", "KenhBanHang"], ["kênh bán"], 1),
-            "staff_id": F(["Người bán", "Mã NV bán", "MaNhanVien"], ["mã nhân viên bán"], 1),
             "branch_id": F(["MaChiNhanh", "Chi nhánh"], [], 0.5),
             "shift_id": F(["MaCaLam", "Ca làm"], [], 0.5),
             "promo_id": F(["MaKhuyenMai"], [], 0.3),

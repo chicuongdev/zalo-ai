@@ -10,7 +10,7 @@ import pickle
 from pathlib import Path
 
 from . import ingest_business
-from .validate import build_manifest
+from .validate import attach_manifest
 
 PKG = Path(__file__).resolve().parent
 NOT_IN_KEY = {"validate.py", "cache.py"}   # manifest is recomputed on load, so editing checks keeps the cache
@@ -31,14 +31,15 @@ def load_shop(biz_dir: Path, cache_dir: Path | None = Path("work/cdm")):
     """(cdm, mappings) for a shop, from cache when possible."""
     biz_dir = Path(biz_dir)
     if cache_dir is None:
-        return ingest_business(biz_dir)
+        cdm, mappings = ingest_business(biz_dir)
+        return attach_manifest(cdm, mappings), mappings
     path = Path(cache_dir) / f"{biz_dir.name}-{_key(biz_dir)}.pkl"
     if path.exists():
         with open(path, "rb") as f:
             cdm, mappings = pickle.load(f)
-        cdm.manifest = build_manifest(cdm)
-        return cdm, mappings
+        return attach_manifest(cdm, mappings), mappings
     result = ingest_business(biz_dir)
+    attach_manifest(*result)
     path.parent.mkdir(parents=True, exist_ok=True)
     for old in path.parent.glob(f"{biz_dir.name}-*.pkl"):
         old.unlink()

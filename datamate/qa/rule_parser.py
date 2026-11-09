@@ -549,7 +549,8 @@ def parse(question: str, as_of, lex: Lexicon | None = None, vocab=None) -> list[
         add("revenue_multi", filters_list=[{**f_without("channel"), "channel": c} for c in chans])
     if len(pays) >= 2:
         add("revenue_multi", filters_list=[{**f_without("payment_method"), "payment_method": p_} for p_ in pays])
-    if re.search(r"doanh thu|ban duoc|thu (ve|duoc)|tien hang|tien ban|nhieu tien|ban ra|kiem duoc", s) or not cands:
+    # no default intent: a question nothing matched gets no plan (abstain / LLM), never a guessed "revenue" (plan/11 G1)
+    if re.search(r"doanh thu|ban duoc|thu (ve|duoc)|tien hang|tien ban|nhieu tien|ban ra|kiem duoc", s):
         if period and period["kind"] in ("months_ending_at", "month_list", "month_range"):
             add("revenue_series")
         add("revenue")

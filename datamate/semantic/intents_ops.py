@@ -6,7 +6,7 @@ import datetime as dt
 import pandas as pd
 
 from ..ingest.normalize import name_key
-from .intents import (Ctx, NotSupported, Unanswerable, _cmp, customer_code, factor, find_product, intent, item_lines,
+from .intents import (Ctx, NotSupported, Unanswerable, _cmp, absent, customer_code, factor, find_product, intent, item_lines,
                       need, order_mask, pct, rank, revenue_of, round2, round_money)
 from .store import ShopStore
 
@@ -319,7 +319,7 @@ def stock_at(c: Ctx, d: dt.date) -> pd.Series:
         bought = _bought_base(c, after=d, upto=end)
         sold = _sold_base(s, after=d, upto=end)
         return st.sub(bought, fill_value=0).add(sold, fill_value=0).reindex(st.index)
-    raise Unanswerable("shop has no stock records")
+    absent(s, "stock_snapshot", "shop has no stock records")
 
 
 def _stock_date(c: Ctx) -> dt.date:
@@ -505,10 +505,18 @@ def price_increase_date(c: Ctx, pid: str, price: float) -> dt.date:
 def i_item_qty_change(c: Ctx):
     """§5 price-increase effect: base quantity over N days from D vs the N days right before D (valid orders)."""
     ev = c.plan.get("price_event")
-    if ev and not c.plan.get("period"):
+    if ev:
         d = price_increase_date(c, find_product(c.s, c.f.get("product")), float(ev["price"])).isoformat()
+        per = c.plan.get("period") or {}
+        if per.get("date") not in (None, d):
+            # the date written in the plan contradicts the shop's own price history: a misread, not an answer
+            raise NotSupported(f"price event date {d} != plan date {per.get('date')}")
         c.plan = {**c.plan, "period": {"kind": "n_days_from", "date": d, "n": ev["n"]},
                   "compare": {"kind": "n_days_before", "date": d, "n": ev["n"]}}
+    per = c.plan.get("period") or {}
+    if not c.plan.get("compare") and per.get("kind") == "n_days_from":
+        # §5: N days from D are always compared with the N days right before D
+        c.plan = {**c.plan, "compare": {"kind": "n_days_before", "date": per.get("date"), "n": per.get("n")}}
     cur = sum(item_lines(c, s)["qty_base"].sum() for s in c.spans("period"))
     old = sum(item_lines(c, s)["qty_base"].sum() for s in c.spans("compare"))
     return pct(cur, old)
@@ -520,7 +528,15 @@ def i_unanswerable(c: Ctx):
     cap = c.plan.get("needs")
     if cap and c.s.caps.get(cap):
         raise NotSupported(f"shop does record {cap}")
+    if cap:
+        absent(c.s, cap, c.plan.get("reason") or "not recorded")
     raise Unanswerable(c.plan.get("reason") or "not recorded")
+
+
+@intent("other", "unanswerable")
+def i_other(c: Ctx):
+    """The parser could not place the question in the catalog (plan/11 G1): abstain or go to the fallback."""
+    raise NotSupported("question outside the intent catalog")
 
 
 @intent("revenue_multi", "list")

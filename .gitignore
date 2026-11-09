@@ -16,3 +16,7 @@ result/
 
 # kaggle bundle (contains gold plans derived from train data)
 dist/
+
+# Kaggle outputs / executed notebooks (contain competition questions)
+notebooks/kaggle_output/
+version*.ipynb
